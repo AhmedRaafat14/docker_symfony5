@@ -1,0 +1,39 @@
+FROM php:7.4-fpm
+
+RUN apt-get update -y \
+    && apt-get upgrade -y \
+    && apt-get install -y vim openssh-server zlib1g-dev libpq-dev git libicu-dev libxml2-dev libzip-dev \
+    && docker-php-ext-configure intl \
+    && docker-php-ext-install intl \
+    && docker-php-ext-configure pgsql -with-pgsql=/usr/local/pgsql \
+    && docker-php-ext-install mysqli pdo_mysql pdo pdo_pgsql pgsql \
+    && docker-php-ext-install zip xml
+
+# we install nodejs & yarn as we need it for the webpack encore: https://symfony.com/doc/current/frontend.html
+RUN curl https://deb.nodesource.com/setup_12.x | bash
+RUN curl https://dl.yarnpkg.com/debian/pubkey.gpg | apt-key add -
+RUN echo "deb https://dl.yarnpkg.com/debian/ stable main" | tee /etc/apt/sources.list.d/yarn.list
+RUN apt-get update && apt-get install -y nodejs yarn
+
+
+# Install composer: Remove the --version or update it once symfon/flex updated to support composer ^2
+RUN curl -sS https://getcomposer.org/installer | php -- --install-dir=/usr/local/bin --filename=composer --version=1.10.7
+
+# Will uese the script to wait untill the application be up so we can run
+# composer install or Db migration commands: https://github.com/vishnubob/wait-for-it
+COPY wait-for-it.sh /usr/bin/wait-for-it
+RUN chmod +x /usr/bin/wait-for-it
+
+# Set timezone
+RUN rm /etc/localtime
+RUN ln -s /usr/share/zoneinfo/Europe/Amsterdam /etc/localtime
+RUN "date"
+
+WORKDIR /var/www/symfonyapp
+
+CMD ["php-fpm"]
+
+# Using the `wait-for-it` script to run the migrations after the database is up & running
+CMD composer install ; yarn install ; wait-for-it database:3306 -- bin/console doctrine:migrations:migrate ;  php-fpm
+
+EXPOSE 9000
